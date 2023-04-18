@@ -1,0 +1,116 @@
+---
+title: "Intro to text analysis"
+author: "Rongbo Jin"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# install packages
+# installed.packages(c("quanteda", "ggplot2", "dplyr", "smart", "quanteda.dictionaries", "quanteda.textplots", "topicmodels", "tidyverse", "tidyr"))
+
+# load packages
+library(quanteda)
+library(ggplot2)
+library(dplyr)
+library(quanteda.dictionaries)
+library(quanteda.textplots)
+library(topicmodels)
+library(tidyverse)
+library(tidyr)
+library(tidytext)
+
+```
+
+
+```{r}
+# load data
+df <- read.csv("platforms_1928-2020.csv")
+table(df$years)
+
+# create corpus and preprocessing
+corpus1 <- corpus(df, 
+                  text_field = "textR") %>%
+  tokens(remove_punct = TRUE, # remove punctuation
+         remove_numbers = TRUE, # remove numbers
+         remove_symbols = TRUE, # remove special symbols
+         padding = TRUE) %>% 
+  tokens_remove(c(quanteda::stopwords(language = "en", source = "smart")), padding = TRUE) %>% # remove stopwords
+  tokens_tolower() %>% # make all words into lower cases
+  tokens_wordstem()
+ 
+
+
+```
+```{r}
+# create DFM 
+# trim DFM, delete words with counts less than 10 or more than 1000
+dfm1 <- dfm(corpus1) %>%
+  dfm_trim(min_termfreq = 1, max_termfreq = 10000)
+nfeat(dfm1)
+
+
+```
+```{r}
+# make a word cloud
+set.seed(132)
+textplot_wordcloud(dfm1, max_words = 100)
+
+
+```
+```{r}
+## LDA Model ##
+dtm1 <- quanteda::convert(dfm1, to = "topicmodels")
+
+# fitting an LDA model is determining the size of k.
+n_topics <- c(2, 3, 4, 5, 6, 7, 8, 9, 10)
+lda_compare1 <- n_topics %>%
+  map(LDA, x = dfm1, control = list(seed = 1109))
+tibble(k = n_topics,
+       perplex = map_dbl(lda_compare1, perplexity)) %>%
+  ggplot(aes(k, perplex)) +
+  geom_point() +
+  geom_line() +
+  labs(# title = "Evaluating LDA topic models",
+    # subtitle = "Optimal number of topics (smaller is better)",
+    x = "Number of topics",
+    y = "Perplexity")
+
+
+
+```
+```{r}
+### K=7
+set.seed(122)
+lda1 <- LDA(dtm1, method = "Gibbs", k = 7, control = list(alpha = 0.1))
+terms(lda1, 10)
+
+topics1 <- tidy(lda1, matrix="beta")
+head(topics1, 10)
+# Reshape this by grouping values by topic
+top_terms1 <- topics1 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>% # We just keep top 20 words
+  ungroup() %>%
+  arrange(topic, -beta) # We arrange them by descending beta values
+# Let's see what this looks like
+head(top_terms1, 25)
+
+top_terms1 %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = T) +
+  labs(title = "Proportion of Top 10 Terms in Each Topic", 
+       x = "Terms", y = "Term Distribution Per Topic") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_legend(title = "Topics", title.position = "top")) +
+  # scale_fill_discrete(limits=c("1", "2", "3"), labels=c("")) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+
+
+
+```
+
+
